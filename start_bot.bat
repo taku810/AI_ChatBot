@@ -1,0 +1,9 @@
+@echo off
+echo VOICEVOXを起動しています...
+start "" "C:\Program Files\VOICEVOX\VOICEVOX.exe"
+echo VOICEVOXの起動を待機しています...
+timeout /t 10 /nobreak
+echo Discord VoiceVOX チャットボットを起動しています...
+cd /d "C:\Users\taku8\Desktop\to practice\AI_chatbot"
+python main.py
+pause

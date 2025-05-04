@@ -8,7 +8,7 @@ Discord VoiceVOX チャットボット
 
 import os
 import logging
-from src.discord_bot import run_bot
+from src.discord_bot import run_bots
 
 if __name__ == "__main__":
     # logsディレクトリの作成
@@ -26,4 +26,4 @@ if __name__ == "__main__":
     logger = logging.getLogger(__name__)
     
     logger.info("Discord VoiceVOX チャットボットを起動します...")
-    run_bot()
+    run_bots()
