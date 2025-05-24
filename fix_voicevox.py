@@ -1,4 +1,8 @@
 import os
+
+# 新しいVoiceVoxClientの内容
+new_content = """# filepath: c:\\Users\\taku8\\Desktop\\to practice\\AI_chatbot\\src\\voicevox_client.py
+import os
 import io
 import logging
 import requests
@@ -34,7 +38,7 @@ class VoiceVoxClient:
         self._last_success_time = time.time()
     
     def _generate_audio_sync(self, text, speaker_id):
-        """
+        \"\"\"
         同期処理で音声を生成する（スレッドプール内で実行される）
         
         Args:
@@ -43,7 +47,7 @@ class VoiceVoxClient:
             
         Returns:
             生成された音声データのパス
-        """
+        \"\"\"
         try:
             # 音声合成用のクエリを作成
             query_payload = {
@@ -110,7 +114,7 @@ class VoiceVoxClient:
             return None
     
     async def generate_audio(self, text, speaker_id):
-        """
+        \"\"\"
         非同期で音声を生成する
         
         Args:
@@ -119,7 +123,7 @@ class VoiceVoxClient:
             
         Returns:
             生成された音声データのパス
-        """
+        \"\"\"
         # テキストが空の場合は何もしない
         if not text or not text.strip():
             return None
@@ -152,7 +156,7 @@ class VoiceVoxClient:
             return None
     
     async def text_to_speech(self, text, speaker_id):
-        """
+        \"\"\"
         テキストを音声に変換する（互換性のためのメソッド）
         
         Args:
@@ -161,11 +165,11 @@ class VoiceVoxClient:
             
         Returns:
             生成された音声データのパス
-        """
+        \"\"\"
         return await self.generate_audio(text, speaker_id)
     
     async def text_to_speech_parallel(self, text, speaker_id):
-        """
+        \"\"\"
         テキストを音声に変換する（旧並列処理版と互換性を維持）
         
         Args:
@@ -174,14 +178,14 @@ class VoiceVoxClient:
             
         Returns:
             生成された音声データのパス
-        """
+        \"\"\"
         # 新しい実装に移行済みのため、単に generate_audio を呼び出す
         return await self.generate_audio(text, speaker_id)
     
     def cleanup_cache(self):
-        """
+        \"\"\"
         不要になったキャッシュファイルを削除する
-        """
+        \"\"\"
         removed = 0
         for key, path in list(self._cache.items()):
             if not os.path.exists(path):
@@ -190,3 +194,10 @@ class VoiceVoxClient:
         
         if removed > 0:
             logger.info(f"{removed}個のキャッシュエントリを削除しました")
+"""
+
+# ファイルに書き込み
+with open('src/voicevox_client.py', 'w', encoding='utf-8') as f:
+    f.write(new_content)
+
+print("VoiceVoxClientを更新しました。")

@@ -1,0 +1,2 @@
+# filepath: c:\Users\taku8\Desktop\to practice\AI_chatbot\src\voicevox_client.py 
+

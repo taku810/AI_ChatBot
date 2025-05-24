@@ -39,6 +39,10 @@ TARGET_USER_ID = int(os.getenv("TARGET_USER_ID", 0))
 VOICE_CHANNEL_ID = int(os.getenv("VOICE_CHANNEL_ID", 0))
 TEXT_CHANNEL_ID = int(os.getenv("TEXT_CHANNEL_ID", 0))
 BOT_COUNT = int(os.getenv("BOT_COUNT", 1))  # 同時起動するボットの数
+ACTIVE_BOT_RATIO = float(os.getenv("ACTIVE_BOT_RATIO", 0.5))  # アクティブにするボットの割合
+BOT_ROTATION_INTERVAL = int(os.getenv("BOT_ROTATION_INTERVAL", 30))  # ボットローテーションの間隔（分）
+MESSAGE_COOLDOWN = int(os.getenv("MESSAGE_COOLDOWN", 15))  # メッセージのクールダウン（秒）
+MAX_DAILY_MESSAGES = int(os.getenv("MAX_DAILY_MESSAGES", 50))  # 1日あたりの最大メッセージ数
 
 # ボットトークンの処理を改善
 raw_tokens = os.getenv("BOT_TOKENS", "")
@@ -322,11 +326,14 @@ user_status = {
     "left_voice_at": None,
     "needs_greeting": False,
     "online_status": False,
-    "last_autonomous_join": None
+    "last_autonomous_join": None,
+    "last_rotation_time": datetime.now()
 }
 
-# ボットのインスタンスを作成
-bots = []
+# ボットの設定
+all_bots = []  # 全てのボットのリスト
+active_bots = []  # 現在アクティブなボットのリスト
+bots = []  # 互換性のために維持（active_botsを参照する）
 
 # トークン数に基づいてボットを作成（BOT_COUNTを上限とする）
 max_bots = min(BOT_COUNT, len(BOT_TOKENS))
@@ -336,12 +343,41 @@ for i in range(max_bots):
     if i < len(BOT_TOKENS) and BOT_TOKENS[i].strip():
         logger.info(f"Bot {i} を作成中...")
         bot = CharacterBot(i)
-        bots.append(bot)
+        all_bots.append(bot)
         logger.info(f"Bot {i} の作成完了")
 
-if not bots and DISCORD_TOKEN:
+if not all_bots and DISCORD_TOKEN:
     bot = CharacterBot(0)
-    bots.append(bot)
+    all_bots.append(bot)
+
+# ボットのローテーション関数
+def rotate_active_bots():
+    """アクティブなボットをローテーションする"""
+    global active_bots, bots
+    
+    # アクティブにするボットの数を計算
+    active_count = max(1, int(len(all_bots) * ACTIVE_BOT_RATIO))
+    
+    # ランダムにボットを選択
+    active_bots = random.sample(all_bots, min(active_count, len(all_bots)))
+    
+    # 互換性のためにbotsにも同じリストを設定
+    bots = active_bots
+    
+    # アクティブボットのキャラクターをランダムに割り当て
+    character_manager = CharacterManager("config/characters.json")
+    characters = character_manager.get_all_characters()
+    
+    for bot in active_bots:
+        if characters:
+            bot.character = random.choice(characters)
+            logger.info(f"Bot {bot.bot_id} にキャラクター '{bot.character['name']}' を割り当てました")
+    
+    logger.info(f"ボットをローテーションしました。アクティブボット数: {len(active_bots)}/{len(all_bots)}")
+    user_status["last_rotation_time"] = datetime.now()
+
+# 初期ローテーションを実行
+rotate_active_bots()
 
 # 音声認識関連
 voice_recognition_active = False
@@ -360,6 +396,18 @@ async def check_user_status(bot):
     if not user:
         logger.warning(f"ユーザー (ID: {TARGET_USER_ID}) が見つかりません")
         return
+    
+    # ボットのローテーションをチェック
+    now = datetime.now()
+    if (now - user_status["last_rotation_time"]).total_seconds() > (BOT_ROTATION_INTERVAL * 60):
+        logger.info(f"ローテーション間隔 {BOT_ROTATION_INTERVAL} 分が経過したため、ボットをローテーションします")
+        rotate_active_bots()
+        
+        # ローテーションメッセージを送信（テキストチャンネルがある場合）
+        if TEXT_CHANNEL_ID != 0:
+            text_channel = bot.get_channel(TEXT_CHANNEL_ID)
+            if text_channel:
+                await text_channel.send("ボットがローテーションされました。新しいキャラクターが会話に参加します！")
 
     # ユーザーのアクティビティ確認
     previous_game_name = user_status["game_name"]
@@ -505,8 +553,8 @@ def run_bots():
         logger.error("TARGET_USER_ID が設定されていません")
         return
 
-    if not bots:
-        logger.error("有効なボットが存在しません")
+    if not active_bots:
+        logger.error("アクティブなボットが存在しません")
         return
     
     # 各Botを並列実行
@@ -515,14 +563,15 @@ def run_bots():
     # 各ボットの起動を確認するカウンター
     started_bots = 0
     
-    # 各ボットを起動
-    for i, bot in enumerate(bots):
-        if i < len(BOT_TOKENS):
-            token = BOT_TOKENS[i].strip()
+    # アクティブなボットのみを起動
+    for bot in active_bots:
+        bot_id = bot.bot_id
+        if bot_id < len(BOT_TOKENS):
+            token = BOT_TOKENS[bot_id].strip()
             if token:
                 # 各ボットを非同期で実行
                 loop.create_task(bot.start(token))
-                logger.info(f"Bot {i} の起動タスクを作成しました（トークン: {token[:5]}...）")
+                logger.info(f"Bot {bot_id} の起動タスクを作成しました（トークン: {token[:5]}...）")
                 started_bots += 1
     
     if started_bots == 0:
@@ -530,15 +579,57 @@ def run_bots():
         return
     
     logger.info(f"{started_bots}個のボットを起動しました")
-    
-    # 自律的なボイスチャンネル参加タスクを登録
+      # 自律的なボイスチャンネル参加タスクを登録
     async def autonomous_voice_join_task():
         while True:
             await asyncio.sleep(30)  # 初回は30秒待ってからチェック開始
             await autonomous_voice_join()
             await asyncio.sleep(300)  # その後は5分ごとにチェック
     
+    # ボットローテーションタスクを登録
+    async def bot_rotation_task():
+        while True:
+            await asyncio.sleep(BOT_ROTATION_INTERVAL * 60)  # 環境変数で設定された間隔でローテーション
+            logger.info(f"ボットローテーションタイマー発動（間隔: {BOT_ROTATION_INTERVAL}分）")
+            
+            # 現在アクティブなボットを記録
+            previous_active_bots = list(active_bots)
+            
+            # ボットをローテーション
+            rotate_active_bots()
+            
+            # 新しいボットをアクティブに、古いボットを非アクティブに
+            for bot in all_bots:
+                bot_id = bot.bot_id
+                token = BOT_TOKENS[bot_id] if bot_id < len(BOT_TOKENS) else None
+                
+                # 新しくアクティブになったボット
+                if bot in active_bots and bot not in previous_active_bots:
+                    if token:
+                        # ボットを起動
+                        logger.info(f"ボットローテーション: Bot {bot_id} を起動します")
+                        loop.create_task(bot.start(token))
+                
+                # 非アクティブになったボット
+                elif bot in previous_active_bots and bot not in active_bots:
+                    if bot._ready.is_set():  # ボットが初期化完了している場合のみクローズ
+                        logger.info(f"ボットローテーション: Bot {bot_id} を停止します")
+                        loop.create_task(bot.close())
+            
+            # ボットの状態が変更されたことをテキストチャンネルに通知
+            if TEXT_CHANNEL_ID != 0:
+                for bot in active_bots:
+                    if bot._ready.is_set() and bot.character:
+                        channel = bot.get_channel(TEXT_CHANNEL_ID)
+                        if channel:
+                            try:
+                                await channel.send(f"ボットがローテーションされました！ {len(active_bots)}/{len(all_bots)} のボットがアクティブです。")
+                                break  # 一つのボットからだけ送信すれば十分
+                            except Exception as e:
+                                logger.error(f"ローテーション通知の送信中にエラー: {e}")
+    
     loop.create_task(autonomous_voice_join_task())
+    loop.create_task(bot_rotation_task())
     
     try:
         loop.run_forever()
